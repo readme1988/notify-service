@@ -1,33 +1,21 @@
 package io.choerodon.notify.api.service;
 
 import com.github.pagehelper.PageInfo;
-
-import java.util.*;
-
-import org.springframework.data.domain.*;
 import io.choerodon.notify.api.dto.*;
-import io.choerodon.notify.domain.*;
-import io.choerodon.swagger.notify.*;
+import io.choerodon.notify.api.vo.WebHookVO;
+import io.choerodon.notify.infra.dto.SendSettingDTO;
+import io.choerodon.swagger.notify.NotifyBusinessTypeScanData;
+import org.springframework.data.domain.Pageable;
+
+import java.util.List;
+import java.util.Set;
 
 public interface SendSettingService {
-
-    Set<BusinessTypeDTO> listNames(String level);
-
-    Set<BusinessTypeDTO> listNames();
-
-    PageInfo<SendSettingListDTO> page(String level, String name, String code,
-                                      String description, String params, int page, int size);
-
-    PageInfo<SendSettingListDTO> page(String name, String code,
-                                      String description, String params, int page, int size);
-
-    SendSetting update(SendSettingUpdateDTO updateDTO);
-
-    SendSettingDetailDTO query(Long id);
+    SendSettingVO query(String code);
 
     void createByScan(Set<NotifyBusinessTypeScanData> businessTypes);
 
-    List<SendSettingDetailDTO> queryByLevelAndAllowConfig(String level, boolean allowConfig);
+    List<SendSettingDetailTreeDTO> queryByLevelAndAllowConfig(String level, boolean allowConfig);
 
     void delete(Long id);
 
@@ -37,31 +25,42 @@ public interface SendSettingService {
      *
      * @param messageType
      * @param introduce
-     * @param level
      * @param enabled
      * @param allowConfig
      * @param params
-     * @param pageable 分页信息
+     * @param pageable    分页信息
      * @return 分页结果
      */
-    PageInfo<MessageServiceVO> pagingAll(String messageType, String introduce, String level, Boolean enabled, Boolean allowConfig, String params, Pageable pageable);
+    PageInfo<MessageServiceVO> pagingAll(String messageType, String introduce, Boolean enabled, Boolean allowConfig, String params, Pageable pageable, String firstCode, String secondCode);
 
     /**
      * 根据id启用消息服务（对应表；notify_send_setting）
      *
-     * @param id 记录主键
      * @return 启用的消息服务信息
      */
-    MessageServiceVO enabled(Long id);
+    MessageServiceVO enabled(String code);
 
     /**
      * 根据id停用消息服务（对应表；notify_send_setting）
      *
-     * @param id 记录主键
      * @return 停用的消息服务信息
      */
-    MessageServiceVO disabled(Long id);
+    MessageServiceVO disabled(String code);
 
+    List<MsgServiceTreeVO> getMsgServiceTree();
+
+    /**
+     * 修改发送设置
+     *
+     * @param id
+     * @param sendSettingDTO 更新信息
+     */
+    SendSettingDTO updateSendSetting(Long id, SendSettingDTO sendSettingDTO);
+
+    /**
+     * 查询项目层下的所有可选的SendSetting
+     */
+    WebHookVO.SendSetting getUnderProject();
 
     /**
      * 根据id
@@ -82,41 +81,17 @@ public interface SendSettingService {
      * @return 消息服务信息
      */
     MessageServiceVO forbiddenConfiguration(Long id);
-
+    /**
+     * 根据code查询发送设置
+     * @param code
+     * @return
+     */
+    SendSettingDTO queryByCode(String code);
 
     /**
-     * 获取邮件内容的发送设置信息
-     *
-     * @param id 发送设置主键
-     * @return 邮件内容的发送设置信息
+     * 校验资源删除验证通知是否启用
+     * @return
      */
-    EmailSendSettingVO getEmailSendSetting(Long id);
-
-
-    /**
-     * 修改邮件内容的发送设置信息
-     *
-     * @param updateVO 更新信息
-     * @return 更新结果
-     */
-    EmailSendSettingVO updateEmailSendSetting(EmailSendSettingVO updateVO);
-
-
-    /**
-     * 获取站内信内容的发送设置信息
-     *
-     * @param id 发送设置主键
-     * @return 站内信内容的发送设置信息
-     */
-    PmSendSettingVO getPmSendSetting(Long id);
-
-
-    /**
-     * 修改站内信内容的发送设置信息
-     *
-     * @param updateVO 更新信息
-     * @return 更新结果
-     */
-    PmSendSettingVO updatePmSendSetting(PmSendSettingVO updateVO);
+    Boolean checkResourceDeleteEnabled();
 
 }

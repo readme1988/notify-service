@@ -7,13 +7,14 @@ import io.choerodon.notify.api.dto.ProjectDTO;
 import io.choerodon.notify.api.dto.SiteMsgRecordDTO;
 import io.choerodon.notify.api.dto.UserDTO;
 import io.choerodon.notify.api.service.SiteMsgRecordService;
-import io.choerodon.notify.domain.SiteMsgRecord;
-import io.choerodon.notify.domain.Template;
+import io.choerodon.notify.infra.dto.SiteMsgRecord;
+import io.choerodon.notify.infra.dto.Template;
 import io.choerodon.notify.infra.enums.SenderType;
 import io.choerodon.notify.infra.feign.UserFeignClient;
 import io.choerodon.notify.infra.mapper.SiteMsgRecordMapper;
 import io.choerodon.websocket.helper.WebSocketHelper;
 import io.choerodon.websocket.send.SendMessagePayload;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.map.MultiKeyMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,8 +49,8 @@ public class SiteMsgRecordServiceImpl implements SiteMsgRecordService {
     }
 
     @Override
-    public PageInfo<SiteMsgRecordDTO> pagingQueryByUserId(Long userId, Boolean isRead, String type, int page, int size) {
-        PageInfo<SiteMsgRecordDTO> result = PageHelper.startPage(page, size).doSelectPageInfo(() -> siteMsgRecordMapper.selectByUserIdAndReadAndDeleted(userId, isRead, type));
+    public PageInfo<SiteMsgRecordDTO> pagingQueryByUserId(Long userId, Boolean isRead, Boolean backlogFlag, int page, int size) {
+        PageInfo<SiteMsgRecordDTO> result = PageHelper.startPage(page, size).doSelectPageInfo(() -> siteMsgRecordMapper.selectByUserIdAndReadAndDeleted(userId, isRead, backlogFlag));
         List<SiteMsgRecordDTO> records = result.getList();
         Map<String, Set<Long>> senderMap = getSenderMap(records);
         processSendBy(records, senderMap);
@@ -138,7 +139,7 @@ public class SiteMsgRecordServiceImpl implements SiteMsgRecordService {
         for (Long id : ids) {
             if (id == null) continue;
             SiteMsgRecord siteMsgRecord = siteMsgRecordMapper.selectByPrimaryKey(id);
-            if (siteMsgRecord != null && siteMsgRecord.getUserId().equals(userId) && !siteMsgRecord.getDeleted()) {
+            if (siteMsgRecord != null && siteMsgRecord.getUserId().equals(userId)) {
                 siteMsgRecordMapper.deleteByPrimaryKey(siteMsgRecord);
             }
         }
@@ -152,7 +153,7 @@ public class SiteMsgRecordServiceImpl implements SiteMsgRecordService {
         AtomicInteger count = new AtomicInteger();
         List<SiteMsgRecord> records = new LinkedList<>();
         for (Long id : ids) {
-            SiteMsgRecord record = new SiteMsgRecord(id, template.getPmTitle(), pmContent);
+            SiteMsgRecord record = new SiteMsgRecord(id, template.getTitle(), pmContent);
             records.add(record);
             if (records.size() >= 999) {
                 siteMsgRecordMapper.batchInsert(records);
@@ -160,8 +161,10 @@ public class SiteMsgRecordServiceImpl implements SiteMsgRecordService {
             }
             count.incrementAndGet();
         }
-        siteMsgRecordMapper.batchInsert(records);
-        records.clear();
+        if (CollectionUtils.isNotEmpty(records)) {
+            siteMsgRecordMapper.batchInsert(records);
+            records.clear();
+        }
         logger.debug("PmSendTask insert database count:{}", count);
     }
 }

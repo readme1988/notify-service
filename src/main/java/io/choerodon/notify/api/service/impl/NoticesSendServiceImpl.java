@@ -1,31 +1,44 @@
 package io.choerodon.notify.api.service.impl;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
+import io.choerodon.asgard.schedule.annotation.JobParam;
+import io.choerodon.asgard.schedule.annotation.JobTask;
+import io.choerodon.core.exception.CommonException;
+import io.choerodon.core.exception.ext.InsertException;
+import io.choerodon.core.oauth.DetailsHelper;
+import io.choerodon.notify.api.dto.*;
 import io.choerodon.notify.api.service.*;
+import io.choerodon.notify.api.vo.WebHookVO;
+import io.choerodon.notify.infra.dto.MessageSettingDTO;
+import io.choerodon.notify.infra.dto.NotifyScheduleRecordDTO;
+import io.choerodon.notify.infra.dto.ReceiveSettingDTO;
+import io.choerodon.notify.infra.dto.SendSettingDTO;
+import io.choerodon.notify.infra.enums.SenderType;
+import io.choerodon.notify.infra.enums.SendingTypeEnum;
+import io.choerodon.notify.infra.feign.AsgardFeignClient;
+import io.choerodon.notify.infra.feign.UserFeignClient;
+import io.choerodon.notify.infra.mapper.NotifyScheduleRecordMapper;
+import io.choerodon.notify.infra.mapper.ReceiveSettingMapper;
+import io.choerodon.notify.infra.mapper.SendSettingMapper;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
 import org.springframework.util.ObjectUtils;
 
-import io.choerodon.core.exception.CommonException;
-import io.choerodon.notify.api.dto.EmailConfigDTO;
-import io.choerodon.notify.api.dto.NoticeSendDTO;
-import io.choerodon.notify.api.dto.UserDTO;
-import io.choerodon.notify.api.pojo.MessageType;
-import io.choerodon.notify.domain.ReceiveSetting;
-import io.choerodon.notify.domain.SendSetting;
-import io.choerodon.notify.infra.enums.SenderType;
-import io.choerodon.notify.infra.feign.UserFeignClient;
-import io.choerodon.notify.infra.mapper.ReceiveSettingMapper;
-import io.choerodon.notify.infra.mapper.SendSettingMapper;
+import java.io.IOException;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class NoticesSendServiceImpl implements NoticesSendService {
     private static final Logger LOGGER = LoggerFactory.getLogger(NoticesSendServiceImpl.class);
-
+    private static final String SITE_SCHEDULE_NOTYFICATION_CODE = "scheduleNotice";
     private EmailSendService emailSendService;
 
     private WebSocketSendService webSocketSendService;
@@ -33,15 +46,20 @@ public class NoticesSendServiceImpl implements NoticesSendService {
     private ReceiveSettingMapper receiveSettingMapper;
     private SendSettingMapper sendSettingMapper;
     private UserFeignClient userFeignClient;
-
+    private AsgardFeignClient asgardFeignClient;
     private SmsService smsService;
+    private NotifyScheduleRecordMapper notifyScheduleRecordMapper;
+    private MessageSettingService messageSettingService;
 
     public NoticesSendServiceImpl(EmailSendService emailSendService,
                                   @Qualifier("pmWsSendService") WebSocketSendService webSocketSendService,
                                   WebHookService webHookService, ReceiveSettingMapper receiveSettingMapper,
                                   SendSettingMapper sendSettingMapper,
                                   UserFeignClient userFeignClient,
-                                  SmsService smsService) {
+                                  AsgardFeignClient asgardFeignClient,
+                                  SmsService smsService,
+                                  NotifyScheduleRecordMapper notifyScheduleRecordMapper,
+                                  MessageSettingService messageSettingService) {
         this.emailSendService = emailSendService;
         this.webSocketSendService = webSocketSendService;
         this.webHookService = webHookService;
@@ -49,6 +67,9 @@ public class NoticesSendServiceImpl implements NoticesSendService {
         this.sendSettingMapper = sendSettingMapper;
         this.userFeignClient = userFeignClient;
         this.smsService = smsService;
+        this.asgardFeignClient = asgardFeignClient;
+        this.notifyScheduleRecordMapper = notifyScheduleRecordMapper;
+        this.messageSettingService = messageSettingService;
     }
 
     //单元测试
@@ -61,87 +82,254 @@ public class NoticesSendServiceImpl implements NoticesSendService {
         emailSendService.testEmailConnect(config);
     }
 
+    /**
+     * 删除定时任务
+     *
+     * @param notifyScheduleRecordDTO
+     */
     @Override
-    public void sendNotice(NoticeSendDTO dto) {
-        if (dto.isSendingSMS()) {
-            smsService.send(dto);
+    public void deleteScheduleNotice(NotifyScheduleRecordDTO notifyScheduleRecordDTO) {
+        NotifyScheduleRecordDTO notifyDTO = new NotifyScheduleRecordDTO();
+        notifyDTO.setScheduleNoticeCode(notifyScheduleRecordDTO.getScheduleNoticeCode());
+        NotifyScheduleRecordDTO result = notifyScheduleRecordMapper.selectOne(notifyDTO);
+        if (result == null) {
+            throw new CommonException("error.delete.notice.not.match");
         }
-        SendSetting sendSetting = sendSettingMapper.selectOne(new SendSetting(dto.getCode()));
-        if (dto.getCode() == null || sendSetting == null) {
-            LOGGER.warn("no sendSetting : {}, can`t send notice.", dto.getCode());
-            return;
-        }
-        boolean haveEmailTemplate = sendSetting.getEmailTemplateId() != null;
-        boolean havePmTemplate = sendSetting.getPmTemplateId() != null;
-        boolean haveSMSTemplate = sendSetting.getSmsTemplateId() != null;
-        boolean enableWebHook = Boolean.TRUE.equals(sendSetting.getWhEnabledFlag());
-        // 如果消息服务未启用，不发送通知
-        if (sendSetting.getEnabled() == null || !sendSetting.getEnabled()) {
-            LOGGER.warn("sendSetting '{}' disabled, can`t send notice.", dto.getCode());
-            return;
-        }
-        // 如果没有任何模板，则不发起feign调用
-        if (!haveEmailTemplate && !havePmTemplate && !haveSMSTemplate && !enableWebHook) {
-            LOGGER.warn("sendSetting '{}' no opposite email template and pm template and sms template, can`t send notice.", dto.getCode());
-            return;
-        }
-        boolean doCustomizedSending = (dto.getCustomizedSendingTypes() != null && !dto.getCustomizedSendingTypes().isEmpty());
-
-        // 取得需要发送通知用户
-        if (ObjectUtils.isEmpty(dto.getTargetUsers())) {
-            return;
-        }
-        Set<UserDTO> users = getNeedSendUsers(dto);
-        if (doCustomizedSending) {
-            if (dto.isSendingEmail()) {
-                trySendEmail(dto, sendSetting, users, haveEmailTemplate);
-            }
-            if (dto.isSendingSiteMessage()) {
-                trySendSiteMessage(dto, sendSetting, users, havePmTemplate);
-            }
-            if (dto.isSendingWebHook() && Boolean.TRUE.equals(sendSetting.getWhEnabledFlag())){
-                webHookService.trySendWebHook(dto, sendSetting);
-            }
-        } else {
-            trySendEmail(dto, sendSetting, users, haveEmailTemplate);
-            trySendSiteMessage(dto, sendSetting, users, havePmTemplate);
-            if (Boolean.TRUE.equals(sendSetting.getWhEnabledFlag())){
-                webHookService.trySendWebHook(dto, sendSetting);
-            }
+        asgardFeignClient.deleteSiteTaskByTaskId(result.getTaskId());
+        if (notifyScheduleRecordMapper.deleteByPrimaryKey(result.getId()) != 1) {
+            throw new CommonException("error.notice.delete");
         }
     }
 
-
-
-    private void trySendEmail(NoticeSendDTO dto, SendSetting sendSetting, final Set<UserDTO> users, final boolean haveEmailTemplate) {
-        // 捕获异常,防止邮件发送失败，影响站内信发送
-        try {
-            if (haveEmailTemplate) {
-                // 得到需要发送邮件的用户
-                Set<UserDTO> needSendEmailUsers = getNeedReceiveNoticeTargetUsers(dto, sendSetting, users, MessageType.EMAIL);
-                emailSendService.sendEmail(dto.getCode(), dto.getParams(), needSendEmailUsers, sendSetting);
-            } else {
-                LOGGER.warn("sendSetting '{}' no opposite email template, can`t send email.", dto.getCode());
+    /**
+     * 更新定时任务
+     *
+     * @param scheduleNoticeCode
+     * @param noticeSendDTO
+     * @param date
+     * @param isNewNotice
+     */
+    @Override
+    public void updateScheduleNotice(String scheduleNoticeCode, Date date, NoticeSendDTO noticeSendDTO, Boolean isNewNotice) {
+        NotifyScheduleRecordDTO notifyScheduleRecordDTO = new NotifyScheduleRecordDTO();
+        notifyScheduleRecordDTO.setScheduleNoticeCode(scheduleNoticeCode);
+        NotifyScheduleRecordDTO result = notifyScheduleRecordMapper.selectOne(notifyScheduleRecordDTO);
+        if (result == null) {
+            throw new CommonException("error.update.notify.not.exist");
+        }
+        asgardFeignClient.deleteSiteTaskByTaskId(result.getTaskId());
+        if (!isNewNotice) {
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+            try {
+                noticeSendDTO = objectMapper.readValue(result.getNoticeContent(), NoticeSendDTO.class);
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-        } catch (CommonException e) {
+        }
+        notifyScheduleRecordMapper.deleteByPrimaryKey(result.getId());
+        sendScheduleNotice(noticeSendDTO, date, scheduleNoticeCode);
+    }
+
+    @Override
+    public void sendNotice(NoticeSendDTO noticeSendDTO) {
+        LOGGER.info(">>>START_SENDING_MESSAGE>>>");
+        // 0.1 校验SendSetting是否存在 : 不存在 则 取消发送
+        SendSettingDTO sendSettingDTO = sendSettingMapper.selectOne(new SendSettingDTO().setCode(noticeSendDTO.getCode()));
+        if (ObjectUtils.isEmpty(sendSettingDTO)) {
+            LOGGER.warn(">>>CANCEL_SENDING>>> The send setting code does not exist.[INFO:send_setting_code:'{}']", noticeSendDTO.getCode());
+            return;
+        }
+        // 0.2 校验SendSetting启用状态 / 发送方式启用状态 : 如停用 或 发送方式皆不启用 则 取消发送
+        if (!sendSettingDTO.getEnabled() ||
+                !(sendSettingDTO.getEmailEnabledFlag() || sendSettingDTO.getPmEnabledFlag() ||
+                        sendSettingDTO.getSmsEnabledFlag() || sendSettingDTO.getWebhookEnabledFlag())) {
+            LOGGER.warn(">>>CANCEL_SENDING>>> The send setting has been disabled OR all sending types for this send setting have been disabled.[INFO:send_setting_code:'{}']", noticeSendDTO.getCode());
+            return;
+        }
+        // 0.3 校验发送对象不为空 : 如发送对象为空，则取消此次发送
+        if (ObjectUtils.isEmpty(noticeSendDTO.getTargetUsers())) {
+            LOGGER.warn(">>>CANCEL_SENDING>>> No sending receiver is specified");
+            return;
+        }
+        // 1.获取发送对象
+        Set<UserDTO> users = getNeedSendUsers(noticeSendDTO);
+
+        // 2.获取是否启用自定义发送类型
+        boolean customizedSendingTypesFlag = !CollectionUtils.isEmpty(noticeSendDTO.getCustomizedSendingTypes());
+        LOGGER.info(">>>WHETHER_TO_CUSTOMIZE_THE_CONFIGURATION>>>{}>>>email:{}>>>pm:{}>>>sms:{}>>>wb:{}", customizedSendingTypesFlag, noticeSendDTO.isSendingEmail(), noticeSendDTO.isSendingSiteMessage(), noticeSendDTO.isSendingSMS(), noticeSendDTO.isSendingWebHook());
+        //项目层的设置
+        MessageSettingVO messageSettingVO = messageSettingService.getSettingByCode(noticeSendDTO.getSourceId(), noticeSendDTO.getNotifyType(), noticeSendDTO.getCode(), noticeSendDTO.getEnvId(), noticeSendDTO.getEventName());
+        // 3.1.发送邮件
+        //平台层检验是否通过
+        boolean siteLevelEmailVerification = false;
+        //是否需要项目层校验
+        boolean isRequiredProjectLevelEmailPmVerification = false;
+        if ((customizedSendingTypesFlag && noticeSendDTO.isSendingEmail() && sendSettingDTO.getEmailEnabledFlag())
+                || (!customizedSendingTypesFlag && sendSettingDTO.getEmailEnabledFlag())) {
+            siteLevelEmailVerification = true;
+        }
+        if (SenderType.PROJECT.value().equals(sendSettingDTO.getLevel()) && !Objects.isNull(messageSettingVO)) {
+            isRequiredProjectLevelEmailPmVerification = true;
+        }
+        if (siteLevelEmailVerification && !isRequiredProjectLevelEmailPmVerification) {
+            trySendEmail(noticeSendDTO, sendSettingDTO, users);
+        }
+        if (siteLevelEmailVerification && isRequiredProjectLevelEmailPmVerification && messageSettingVO.getEmailEnable()) {
+            trySendEmail(noticeSendDTO, sendSettingDTO, users);
+        }
+
+        // 3.2.发送站内信
+        //平台层校验是否体通过
+        boolean siteLevelPmVerification = false;
+        //是否需要项目层校验
+        boolean isRequiredProjectLevelPmVerification = false;
+        if ((customizedSendingTypesFlag && noticeSendDTO.isSendingSiteMessage() && sendSettingDTO.getPmEnabledFlag())
+                || (!customizedSendingTypesFlag && sendSettingDTO.getPmEnabledFlag())) {
+            siteLevelPmVerification = true;
+        }
+        if (SenderType.PROJECT.value().equals(sendSettingDTO.getLevel()) && !Objects.isNull(messageSettingVO)) {
+            isRequiredProjectLevelPmVerification = true;
+        }
+        if (siteLevelPmVerification && !isRequiredProjectLevelPmVerification) {
+            trySendSiteMessage(noticeSendDTO, sendSettingDTO, users);
+        }
+        if (siteLevelPmVerification && isRequiredProjectLevelPmVerification && messageSettingVO.getPmEnable()) {
+            trySendSiteMessage(noticeSendDTO, sendSettingDTO, users);
+        }
+
+        // 3.3.发送WebHook
+        if ((customizedSendingTypesFlag && noticeSendDTO.isSendingWebHook()) || (!customizedSendingTypesFlag && sendSettingDTO.getWebhookEnabledFlag())) {
+            trySendWebHook(noticeSendDTO, sendSettingDTO, users);
+        }
+        // 3.4 发送短信
+        //平台层校验是否体通过
+        boolean siteLevelSmsVerification = false;
+        //是否需要项目层校验
+        boolean isRequiredProjectLevelSmsVerification = false;
+        if ((customizedSendingTypesFlag && !ObjectUtils.isEmpty(noticeSendDTO.isSendingSMS()) && noticeSendDTO.isSendingSMS() && sendSettingDTO.getSmsEnabledFlag())
+                || (!customizedSendingTypesFlag && sendSettingDTO.getSmsEnabledFlag())) {
+            siteLevelSmsVerification = true;
+        }
+        if (SenderType.PROJECT.value().equals(sendSettingDTO.getLevel()) && !Objects.isNull(messageSettingVO)) {
+            isRequiredProjectLevelSmsVerification = true;
+        }
+        if (siteLevelSmsVerification && !isRequiredProjectLevelSmsVerification) {
+            smsService.send(noticeSendDTO);
+        }
+        if (siteLevelSmsVerification && isRequiredProjectLevelSmsVerification && messageSettingVO.getSmsEnable()) {
+            smsService.send(noticeSendDTO);
+        }
+    }
+
+    @Override
+    public Long sendScheduleNotice(NoticeSendDTO dto, Date date, String scheduleNoticeCode) {
+        Long methodId = asgardFeignClient.getMethodIdByCode(SITE_SCHEDULE_NOTYFICATION_CODE).getBody();
+        Long[] assignUserIds = new Long[1];
+        assignUserIds[0] = DetailsHelper.getUserDetails().getUserId();
+        ObjectMapper objectMapper = new ObjectMapper();
+        String jsonStr = new String();
+        try {
+            jsonStr = objectMapper.writeValueAsString(dto);
+        } catch (JsonProcessingException e) {
+            LOGGER.error("json translation failed!", e);
+        }
+        Map<String, Object> params = new HashMap<>();
+        params.put("noticeSendDTO", jsonStr);
+        ScheduleTaskDTO createTskDTO = new ScheduleTaskDTO(
+                methodId, params, "通知消息", "消息信息", date, assignUserIds);
+        Long taskId = asgardFeignClient.createSiteScheduleTask(createTskDTO).getBody().getId();
+        //存储定时任务和消息的映射关系
+        NotifyScheduleRecordDTO notifyScheduleRecordDTO = new NotifyScheduleRecordDTO();
+        notifyScheduleRecordDTO.setTaskId(taskId);
+        notifyScheduleRecordDTO.setScheduleNoticeCode(scheduleNoticeCode);
+        notifyScheduleRecordDTO.setNoticeContent(jsonStr);
+        if (notifyScheduleRecordMapper.insertSelective(notifyScheduleRecordDTO) != 1) {
+            throw new InsertException("error.insert.scheduleTaskRecord");
+        }
+        return taskId;
+    }
+
+    /**
+     * 通知消息 JobTask
+     *
+     * @param map 参数map
+     */
+    @JobTask(maxRetryCount = 0, code = "scheduleNotice", params = {
+            @JobParam(name = "noticeSendDTO", description = "参数")
+    }, description = "发送通知消息")
+    public void scheduleNotice(Map<String, Object> map) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        NoticeSendDTO dto = null;
+        try {
+            dto = objectMapper.readValue((Optional.ofNullable((String) map.get("noticeSendDTO"))).orElseThrow(() -> new CommonException("error.systemNotification.id.empty")), NoticeSendDTO.class);
+        } catch (IOException e) {
             LOGGER.error("send email failed!", e);
         }
+        sendNotice(dto);
     }
 
-    private void trySendSiteMessage(NoticeSendDTO dto, SendSetting sendSetting, final Set<UserDTO> users, final boolean havePmTemplate) {
+    /**
+     * 发送邮件
+     * 需要捕获异常并LOG
+     *
+     * @param noticeSendDTO  发送信息
+     * @param sendSettingDTO 发送设置信息
+     * @param users          用户
+     */
+    private void trySendEmail(NoticeSendDTO noticeSendDTO, SendSettingDTO sendSettingDTO, final Set<UserDTO> users) {
         try {
-            if (havePmTemplate) {
-                //得到需要发送站内信的用户
-                Set<UserDTO> needSendPmUsers = getNeedReceiveNoticeTargetUsers(dto, sendSetting, users, MessageType.PM);
-                Map<String, Long> sender = new HashMap<>(5);
-                String senderType = getSenderDetail(dto, sender, sendSetting);
-                webSocketSendService.sendSiteMessage(dto.getCode(), dto.getParams(), needSendPmUsers,
-                        sender.get(senderType), senderType, sendSetting);
-            } else {
-                LOGGER.warn("sendSetting '{}' no opposite pm template, can`t send pm.", dto.getCode());
-            }
-        } catch (CommonException e) {
-            LOGGER.error("send station letter failed!", e);
+            //1.获取邮件接收用户
+            Set<UserDTO> mailRecipient = getNeedReceiveNoticeTargetUsers(noticeSendDTO, sendSettingDTO, users, SendingTypeEnum.EMAIL);
+            //2.发送邮件
+            emailSendService.sendEmail(noticeSendDTO.getParams(), mailRecipient, sendSettingDTO);
+        } catch (Exception e) {
+            LOGGER.warn(">>>SENDING_EMAIL_ERROR>>> An error occurred while sending the message.", e);
+        }
+    }
+
+    /**
+     * 发送WebHook
+     * 需要捕获异常并LOG
+     *
+     * @param noticeSendDTO  发送信息
+     * @param sendSettingDTO 发送设置信息
+     * @param users          用户
+     */
+    private void trySendWebHook(NoticeSendDTO noticeSendDTO, SendSettingDTO sendSettingDTO, final Set<UserDTO> users) {
+        try {
+            //1.获取邮件接收用户
+            Set<String> mobiles = users.stream().map(UserDTO::getPhone).collect(Collectors.toSet());
+            //2.发送邮件
+            webHookService.trySendWebHook(noticeSendDTO, sendSettingDTO, mobiles);
+        } catch (Exception e) {
+            LOGGER.warn(">>>SENDING_WEBHOOL_ERROR>>> An error occurred while sending the message.", e);
+        }
+    }
+
+    /**
+     * 发送站内信
+     * 需要捕获异常并LOG
+     *
+     * @param noticeSendDTO  发送信息
+     * @param sendSettingDTO 发送设置信息
+     * @param users          用户
+     */
+    private void trySendSiteMessage(NoticeSendDTO noticeSendDTO, SendSettingDTO sendSettingDTO, final Set<UserDTO> users) {
+        try {
+            //1.获取站内信接收用户
+            Set<UserDTO> needSendPmUsers = getNeedReceiveNoticeTargetUsers(noticeSendDTO, sendSettingDTO, users, SendingTypeEnum.PM);
+
+            //2.获取发送方信息
+            Map<String, Long> sender = new HashMap<>(5);
+            String senderType = getSenderDetail(noticeSendDTO, sender, sendSettingDTO);
+
+            //3.发送站内信
+            webSocketSendService.sendSiteMessage(noticeSendDTO.getCode(), noticeSendDTO.getParams(), needSendPmUsers,
+                    sender.get(senderType), senderType, sendSettingDTO);
+        } catch (Exception e) {
+            LOGGER.warn(">>>SENDING_SITE_MESSAGE_ERROR>>> An error occurred while sending the message.", e);
         }
     }
 
@@ -151,7 +339,7 @@ public class NoticesSendServiceImpl implements NoticesSendService {
      * @param dto NoticeSendDTO
      * @return sender type
      */
-    private String getSenderDetail(NoticeSendDTO dto, Map<String, Long> map, SendSetting sendSetting) {
+    private String getSenderDetail(NoticeSendDTO dto, Map<String, Long> map, SendSettingDTO sendSetting) {
         NoticeSendDTO.User user = dto.getFromUser();
         //设置默认发送者为平台
         String senderType = SenderType.SITE.value();
@@ -211,12 +399,15 @@ public class NoticesSendServiceImpl implements NoticesSendService {
      * 则得到没有禁用接收通知的用户
      * 否则得到全部用户
      */
-    private Set<UserDTO> getNeedReceiveNoticeTargetUsers(final NoticeSendDTO dto, final SendSetting sendSetting, final Set<UserDTO> users, final MessageType type) {
-        if (!sendSetting.getAllowConfig()) {
+    private Set<UserDTO> getNeedReceiveNoticeTargetUsers(final NoticeSendDTO noticeSendDTO, final SendSettingDTO sendSettingDTO, final Set<UserDTO> users, final SendingTypeEnum type) {
+        //1.是否允许用户配置拒绝接收
+        if (!sendSettingDTO.getAllowConfig()) {
             return users;
         }
+        //2.过滤去除拒绝接收的用户
         return users.stream().filter(user -> {
-            ReceiveSetting setting = new ReceiveSetting(sendSetting.getId(), type.getValue(), dto.getSourceId(), sendSetting.getLevel(), user.getId());
+            new ReceiveSettingDTO().setUserId(user.getId());
+            ReceiveSettingDTO setting = new ReceiveSettingDTO(sendSettingDTO.getId(), type.getValue(), noticeSendDTO.getSourceId(), sendSettingDTO.getLevel(), user.getId());
             return receiveSettingMapper.selectCount(setting) == 0;
         }).collect(Collectors.toSet());
     }

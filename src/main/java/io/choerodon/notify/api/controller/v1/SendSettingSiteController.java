@@ -1,25 +1,27 @@
 package io.choerodon.notify.api.controller.v1;
 
 import com.github.pagehelper.PageInfo;
+import io.choerodon.core.annotation.Permission;
+import io.choerodon.core.enums.ResourceType;
+import io.choerodon.core.iam.InitRoleCode;
+import io.choerodon.notify.api.dto.MessageServiceVO;
+import io.choerodon.notify.api.dto.MsgServiceTreeVO;
+import io.choerodon.notify.api.dto.SendSettingDetailTreeDTO;
+import io.choerodon.notify.api.dto.SendSettingVO;
+import io.choerodon.notify.api.service.SendSettingService;
+import io.choerodon.notify.infra.dto.SendSettingDTO;
+import io.choerodon.swagger.annotation.CustomPageRequest;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import springfox.documentation.annotations.ApiIgnore;
 
-import java.util.*;
-import javax.validation.*;
-
-import io.choerodon.core.annotation.*;
-import org.springframework.data.domain.*;
-import io.choerodon.core.enums.*;
-import io.choerodon.core.iam.*;
-import io.choerodon.notify.api.dto.*;
-import io.choerodon.notify.api.service.*;
-import io.choerodon.notify.domain.*;
-import io.choerodon.swagger.annotation.*;
+import java.util.List;
 
 @RestController
 @RequestMapping("v1/notices/send_settings")
@@ -32,72 +34,70 @@ public class SendSettingSiteController {
         this.sendSettingService = sendSettingService;
     }
 
-    @GetMapping("/names")
-    @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "全局层获取业务类型名称列表")
-    public ResponseEntity<Set<BusinessTypeDTO>> listNames() {
-        return new ResponseEntity<>(sendSettingService.listNames(), HttpStatus.OK);
-    }
-
     @GetMapping
     @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "全局层分页查询消息服务列表")
+    @ApiOperation(value = "查询消息服务列表(分页接口)")
     @CustomPageRequest
     public ResponseEntity<PageInfo<MessageServiceVO>> pageSite(@ApiIgnore
                                                                @SortDefault(value = "id", direction = Sort.Direction.DESC) Pageable pageable,
                                                                @RequestParam(required = false) String messageType,
                                                                @RequestParam(required = false) String introduce,
-                                                               @RequestParam(required = false) String level,
                                                                @RequestParam(required = false) Boolean enabled,
                                                                @RequestParam(required = false) Boolean allowConfig,
-                                                               @RequestParam(required = false) String params) {
-        return new ResponseEntity<>(sendSettingService.pagingAll(messageType, introduce, level, enabled, allowConfig, params, pageable), HttpStatus.OK);
+                                                               @RequestParam(required = false) String params,
+                                                               @RequestParam(required = false) String firstCode,
+                                                               @RequestParam(required = false) String secondCode) {
+        return new ResponseEntity<>(sendSettingService.pagingAll(messageType, introduce, enabled, allowConfig, params, pageable, firstCode, secondCode), HttpStatus.OK);
     }
 
-    @GetMapping("/{id}")
+    @GetMapping("/tree")
     @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "全局层查看发送设置详情")
-    public ResponseEntity<SendSettingDetailDTO> query(@PathVariable Long id) {
-        return new ResponseEntity<>(sendSettingService.query(id), HttpStatus.OK);
+    @ApiOperation(value = "获取消息服务树形结构")
+    public ResponseEntity<List<MsgServiceTreeVO>> getMsgServiceTree(@RequestParam(required = false) String name) {
+        return new ResponseEntity<>(sendSettingService.getMsgServiceTree(), HttpStatus.OK);
     }
 
-    @PutMapping("/{id}")
+    @GetMapping("/detail")
     @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "全局层更新发送设置")
-    public ResponseEntity<SendSetting> update(@PathVariable Long id,
-                                              @RequestBody @Valid SendSettingUpdateDTO updateDTO) {
-        updateDTO.setId(id);
-        return new ResponseEntity<>(sendSettingService.update(updateDTO), HttpStatus.OK);
+    @ApiOperation(value = "查看发送设置详情")
+    public ResponseEntity<SendSettingVO> query(@RequestParam String code) {
+        return new ResponseEntity<>(sendSettingService.query(code), HttpStatus.OK);
     }
 
     @GetMapping("/list/allow_config")
     @Permission(permissionLogin = true)
     @ApiOperation(value = "根据层级查询未禁用通知配置的启用状态的发送设置列表")
-    public ResponseEntity<List<SendSettingDetailDTO>> listLevelAndAllowConfig(@RequestParam(name = "source_type", required = false) String level) {
+    public ResponseEntity<List<SendSettingDetailTreeDTO>> listLevelAndAllowConfig(@RequestParam(name = "source_type") String level) {
         return new ResponseEntity<>(sendSettingService.queryByLevelAndAllowConfig(level, true), HttpStatus.OK);
     }
 
     @DeleteMapping("/{id}")
     @Permission(type = ResourceType.SITE, roles = {InitRoleCode.SITE_ADMINISTRATOR})
-    @ApiOperation(value = "根据Id删除发送设置")
+    @ApiOperation(value = "删除发送设置（根据Id）")
     public ResponseEntity delSendSetting(@PathVariable Long id) {
         sendSettingService.delete(id);
         return new ResponseEntity(HttpStatus.OK);
     }
 
-
-    @PutMapping("/{id}/enabled")
+    @PutMapping("/enabled")
     @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "根据id启用消息服务")
-    public ResponseEntity<MessageServiceVO> enabled(@PathVariable("id") Long id) {
-        return new ResponseEntity<>(sendSettingService.enabled(id), HttpStatus.OK);
+    @ApiOperation(value = "启用消息服务（根据code）")
+    public ResponseEntity<MessageServiceVO> enabled(@RequestParam("code") String code) {
+        return new ResponseEntity<>(sendSettingService.enabled(code), HttpStatus.OK);
     }
 
-    @PutMapping("/{id}/disabled")
+    @PutMapping("/disabled")
     @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "根据id停用消息服务")
-    public ResponseEntity<MessageServiceVO> disabled(@PathVariable("id") Long id) {
-        return new ResponseEntity<>(sendSettingService.disabled(id), HttpStatus.OK);
+    @ApiOperation(value = "停用消息服务(根据code)")
+    public ResponseEntity<MessageServiceVO> disabled(@RequestParam("code") String code) {
+        return new ResponseEntity<>(sendSettingService.disabled(code), HttpStatus.OK);
+    }
+
+    @PutMapping("/{id}/send_setting")
+    @Permission(type = ResourceType.SITE)
+    @ApiOperation(value = "修改发送设置")
+    public ResponseEntity<SendSettingDTO> updateSendSetting(@PathVariable("id") Long id, @RequestBody SendSettingDTO updateDTO) {
+        return ResponseEntity.ok(sendSettingService.updateSendSetting(id, updateDTO));
     }
 
     @PutMapping("/{id}/allow_configuration")
@@ -113,37 +113,16 @@ public class SendSettingSiteController {
     public ResponseEntity<MessageServiceVO> forbiddenConfig(@PathVariable("id") Long id) {
         return new ResponseEntity<>(sendSettingService.forbiddenConfiguration(id), HttpStatus.OK);
     }
-
-    @GetMapping("/{id}/email_send_setting")
+    @GetMapping("/codes/{code}")
     @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "获取邮件内容的发送设置信息")
-    public ResponseEntity<EmailSendSettingVO> getEmailSendSetting(@PathVariable("id") Long id) {
-        return new ResponseEntity<>(sendSettingService.getEmailSendSetting(id), HttpStatus.OK);
+    @ApiOperation(value = "查询发送设置(根据code)")
+    public ResponseEntity<SendSettingDTO> queryByCode(@PathVariable("code") String code) {
+        return new ResponseEntity<>(sendSettingService.queryByCode(code), HttpStatus.OK);
     }
-
-    @PutMapping("/{id}/email_send_setting")
-    @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "修改邮件内容的发送设置信息")
-    public ResponseEntity<EmailSendSettingVO> updateEmailSendSetting(@PathVariable("id") Long id,
-                                                                     @RequestBody EmailSendSettingVO updateVO) {
-        updateVO.setId(id);
-        return new ResponseEntity<>(sendSettingService.updateEmailSendSetting(updateVO), HttpStatus.OK);
-    }
-
-
-    @GetMapping("/{id}/pm_send_setting")
-    @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "获取站内信内容的发送设置信息")
-    public ResponseEntity<PmSendSettingVO> getPmSendSetting(@PathVariable("id") Long id) {
-        return new ResponseEntity<>(sendSettingService.getPmSendSetting(id), HttpStatus.OK);
-    }
-
-    @PutMapping("/{id}/pm_send_setting")
-    @Permission(type = ResourceType.SITE)
-    @ApiOperation(value = "修改站内信内容的发送设置信息")
-    public ResponseEntity<PmSendSettingVO> updatePmSendSetting(@PathVariable("id") Long id,
-                                                               @RequestBody PmSendSettingVO updateVO) {
-        updateVO.setId(id);
-        return new ResponseEntity<>(sendSettingService.updatePmSendSetting(updateVO), HttpStatus.OK);
+    @GetMapping("/codes/resourceDeleteConfirmation/check_enabled")
+    @Permission(type = ResourceType.SITE, permissionLogin = true)
+    @ApiOperation(value = "检查资源删除验证通知是否启用")
+    public ResponseEntity<Boolean> checkResourceDeleteEnabled() {
+        return ResponseEntity.ok(sendSettingService.checkResourceDeleteEnabled());
     }
 }

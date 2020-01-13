@@ -1,21 +1,18 @@
 package io.choerodon.notify.infra.template;
 
-import io.choerodon.core.notify.Level;
-import io.choerodon.core.notify.NotifyBusinessType;
-import io.choerodon.core.notify.SmsTemplate;
 import org.springframework.stereotype.Component;
+
+import io.choerodon.core.notify.SmsTemplate;
 
 /**
  * @author superlee
  * @since 2019-05-17
  */
-@NotifyBusinessType(code = "devopsDeleteInstance4Sms", name = "删除实例发送消息", level = Level.SITE,
-        description = "删除实例发送消息", isAllowConfig = false)
 @Component
 public class DeleteInstanceTemplate implements SmsTemplate {
     @Override
     public String businessTypeCode() {
-        return "devopsDeleteInstance4Sms";
+        return "resourceDeleteConfirmation";
     }
 
     @Override

@@ -9,7 +9,6 @@ import io.choerodon.notify.api.validator.SiteMsgRecordValidator;
 import io.choerodon.swagger.annotation.CustomPageRequest;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
-import io.swagger.annotations.ApiParam;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.SortDefault;
@@ -38,22 +37,21 @@ public class SiteMsgRecordController {
 
     @GetMapping
     @Permission(type = ResourceType.SITE, permissionLogin = true)
-    @ApiOperation(value = "全局层查询用户站内信消息接口")
+    @ApiOperation(value = "查询用户站内信消息接口（分页接口）")
     @CustomPageRequest
     public ResponseEntity<PageInfo<SiteMsgRecordDTO>> pagingQuery(@ApiIgnore
                                                                   @SortDefault(value = "id", direction = Sort.Direction.DESC) Pageable pageable,
                                                                   @RequestParam("user_id") Long userId,
                                                                   @RequestParam(value = "read", required = false) Boolean isRead,
-                                                                  @ApiParam(name = "type", value = "站内信类型(msg/notice)", example = "msg")
-                                                                  @RequestParam(required = false) String type
+                                                                  @RequestParam(required = false,value = "backlog_flag") Boolean backlogFlag
     ) {
         SiteMsgRecordValidator.validateCurrentUser(userId);
-        return new ResponseEntity<>(siteMsgRecordService.pagingQueryByUserId(userId, isRead, type, pageable.getPageNumber(), pageable.getPageSize()), HttpStatus.OK);
+        return new ResponseEntity<>(siteMsgRecordService.pagingQueryByUserId(userId, isRead, backlogFlag, pageable.getPageNumber(), pageable.getPageSize()), HttpStatus.OK);
     }
 
     @PutMapping("/batch_read")
     @Permission(type = ResourceType.SITE, permissionLogin = true)
-    @ApiOperation(value = "全局层批量已读站内信消息接口")
+    @ApiOperation(value = "批量已读站内信消息接口")
     public ResponseEntity<List<SiteMsgRecordDTO>> batchRead(@RequestParam("user_id") Long userId,
                                                             @RequestBody Long[] ids) {
         SiteMsgRecordValidator.validateCurrentUser(userId);
@@ -63,7 +61,7 @@ public class SiteMsgRecordController {
 
     @PutMapping("/batch_delete")
     @Permission(type = ResourceType.SITE, permissionLogin = true)
-    @ApiOperation(value = "全局层批量删除站内信消息接口")
+    @ApiOperation(value = "批量删除站内信消息接口")
     public ResponseEntity<List<SiteMsgRecordDTO>> batchDeleted(@RequestParam("user_id") Long userId,
                                                                @RequestBody Long[] ids) {
         SiteMsgRecordValidator.validateCurrentUser(userId);

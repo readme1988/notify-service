@@ -1,8 +1,12 @@
 package io.choerodon.notify.api.controller.v1;
 
 import com.github.pagehelper.PageInfo;
-import io.choerodon.core.annotation.Permission;;
+import io.choerodon.core.annotation.Permission;
 import io.choerodon.core.enums.ResourceType;
+import io.choerodon.notify.api.dto.RecordListDTO;
+import io.choerodon.notify.api.service.MessageRecordService;
+import io.choerodon.notify.domain.Record;
+import io.choerodon.swagger.annotation.CustomPageRequest;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -10,11 +14,6 @@ import org.springframework.data.web.SortDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import io.choerodon.notify.api.dto.*;
-import io.choerodon.notify.api.service.*;
-import io.choerodon.notify.domain.*;
-import io.choerodon.swagger.annotation.*;
 import springfox.documentation.annotations.ApiIgnore;
 
 
@@ -30,7 +29,7 @@ public class MessageRecordSiteController {
 
     @Permission(type = ResourceType.SITE)
     @GetMapping("/emails")
-    @ApiOperation(value = "全局层分页查询邮件消息记录")
+    @ApiOperation(value = "查询邮件消息记录（分页接口）")
     @CustomPageRequest
     public ResponseEntity<PageInfo<RecordListDTO>> pageEmail(@ApiIgnore
                                                              @SortDefault(value = "id", direction = Sort.Direction.DESC) Pageable pageable,
@@ -44,7 +43,7 @@ public class MessageRecordSiteController {
 
     @Permission(type = ResourceType.SITE)
     @PostMapping("/emails/{id}/retry")
-    @ApiOperation(value = "全局层重试发送邮件")
+    @ApiOperation(value = "重试发送邮件")
     public Record manualRetrySendEmail(@PathVariable long id) {
         return messageRecordService.manualRetrySendEmail(id);
     }

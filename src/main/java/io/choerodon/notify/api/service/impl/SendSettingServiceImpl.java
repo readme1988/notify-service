@@ -1,134 +1,164 @@
 package io.choerodon.notify.api.service.impl;
 
+import java.util.*;
+import java.util.stream.Collectors;
+
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
+import io.choerodon.core.notify.NotifyType;
+import io.choerodon.notify.api.service.MessageSettingService;
+import io.choerodon.notify.api.service.ReceiveSettingService;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
 
-import java.util.*;
-import java.util.stream.*;
-
-import org.springframework.data.domain.*;
-import io.choerodon.core.exception.*;
+import io.choerodon.core.enums.ResourceType;
+import io.choerodon.core.exception.CommonException;
+import io.choerodon.core.notify.Level;
+import io.choerodon.core.notify.ServiceNotifyType;
 import io.choerodon.notify.api.dto.*;
-import io.choerodon.notify.api.pojo.*;
-import io.choerodon.notify.api.service.*;
-import io.choerodon.notify.api.validator.*;
-import io.choerodon.notify.domain.*;
+import io.choerodon.notify.api.service.SendSettingService;
+import io.choerodon.notify.api.validator.CommonValidator;
+import io.choerodon.notify.api.vo.WebHookVO;
+import io.choerodon.notify.infra.dto.*;
+import io.choerodon.notify.infra.enums.LevelType;
 import io.choerodon.notify.infra.mapper.*;
-import io.choerodon.notify.infra.utils.*;
-import io.choerodon.swagger.notify.*;
-import io.choerodon.web.util.*;
+import io.choerodon.swagger.notify.NotifyBusinessTypeScanData;
+import io.choerodon.web.util.PageableHelper;
 
 @Service
 public class SendSettingServiceImpl implements SendSettingService {
 
     public static final String SEND_SETTING_DOES_NOT_EXIST = "error.send.setting.not.exist";
     public static final String SEND_SETTING_UPDATE_EXCEPTION = "error.send.setting.update";
+    public static final String RESOURCE_DELETE_CONFIRMATION = "resourceDeleteConfirmation";
     private SendSettingMapper sendSettingMapper;
+    private SendSettingCategoryMapper sendSettingCategoryMapper;
     private TemplateMapper templateMapper;
+    private MessageSettingMapper messageSettingMapper;
+    private MessageSettingTargetUserMapper messageSettingTargetUserMapper;
+    private MessageSettingService messageSettingService;
+    private ReceiveSettingService receiveSettingService;
     private final ModelMapper modelMapper = new ModelMapper();
 
-    public SendSettingServiceImpl(SendSettingMapper sendSettingMapper, TemplateMapper templateMapper) {
+    public SendSettingServiceImpl(SendSettingMapper sendSettingMapper, SendSettingCategoryMapper sendSettingCategoryMapper, TemplateMapper templateMapper, MessageSettingMapper messageSettingMapper, MessageSettingTargetUserMapper messageSettingTargetUserMapper, MessageSettingService messageSettingService, ReceiveSettingService receiveSettingService) {
         this.sendSettingMapper = sendSettingMapper;
+        this.sendSettingCategoryMapper = sendSettingCategoryMapper;
         this.templateMapper = templateMapper;
+        this.messageSettingMapper = messageSettingMapper;
+        this.messageSettingTargetUserMapper = messageSettingTargetUserMapper;
+        this.messageSettingService = messageSettingService;
+        this.receiveSettingService = receiveSettingService;
     }
 
     @Override
-    public Set<BusinessTypeDTO> listNames(final String level) {
-        SendSetting query = new SendSetting();
-        query.setLevel(level);
-        return sendSettingMapper.select(query).stream()
-                .map(ConvertUtils::convertBusinessTypeDTO).collect(Collectors.toSet());
-    }
-
-    @Override
-    public Set<BusinessTypeDTO> listNames() {
-        return sendSettingMapper.selectAll().stream()
-                .map(ConvertUtils::convertBusinessTypeDTO).collect(Collectors.toSet());
-    }
-
-    @Override
-    public PageInfo<SendSettingListDTO> page(final String level, final String name, final String code,
-                                             final String description, final String params, int page, int size) {
-        return PageHelper.startPage(page, size).doSelectPageInfo(
-                () -> sendSettingMapper.fulltextSearch(level, code, name, description, params));
-    }
-
-    @Override
-    public PageInfo<SendSettingListDTO> page(final String name, final String code,
-                                             final String description, final String params, int page, int size) {
-        return PageHelper.startPage(page, size).doSelectPageInfo(
-                () -> sendSettingMapper.fulltextSearch(null, code, name, description, params));
-    }
-
-    @Override
-    public SendSetting update(SendSettingUpdateDTO updateDTO) {
-        SendSetting db = sendSettingMapper.selectByPrimaryKey(updateDTO.getId());
-        if (db == null) {
+    public SendSettingVO query(String code) {
+        SendSettingDTO sendSettingDTO = new SendSettingDTO();
+        sendSettingDTO.setCode(code);
+        sendSettingDTO = sendSettingMapper.selectOne(sendSettingDTO);
+        if (sendSettingDTO == null) {
             throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
         }
-        db.setObjectVersionNumber(updateDTO.getObjectVersionNumber());
-        db.setEmailTemplateId(updateDTO.getEmailTemplateId());
-        db.setSmsTemplateId(updateDTO.getSmsTemplateId());
-        db.setPmTemplateId(updateDTO.getPmTemplateId());
-        if (updateDTO.getRetryCount() != null) {
-            db.setRetryCount(updateDTO.getRetryCount());
-        }
-        if (updateDTO.getIsManualRetry() != null) {
-            db.setIsManualRetry(updateDTO.getIsManualRetry());
-        }
-        if (updateDTO.getIsSendInstantly() != null) {
-            db.setIsSendInstantly(updateDTO.getIsSendInstantly());
-        }
-        if (PmType.NOTICE.getValue().equals(updateDTO.getPmType())) {
-            db.setPmType(PmType.NOTICE.getValue());
-        }
-        if (PmType.MSG.getValue().equals(updateDTO.getPmType())) {
-            db.setPmType(PmType.MSG.getValue());
-        }
-        if (updateDTO.getAllowConfig() != null) {
-            db.setAllowConfig(updateDTO.getAllowConfig());
-        }
-        if (sendSettingMapper.updateByPrimaryKey(db) != 1) {
-            throw new CommonException(SEND_SETTING_UPDATE_EXCEPTION);
-        }
-        return sendSettingMapper.selectByPrimaryKey(db.getId());
-    }
-
-    @Override
-    public SendSettingDetailDTO query(Long id) {
-        SendSettingDetailDTO sendSetting = sendSettingMapper.selectById(id);
-        if (sendSetting == null) {
-            throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
-        }
+        SendSettingVO sendSetting = new SendSettingVO();
+        BeanUtils.copyProperties(sendSettingDTO, sendSetting);
+        Template template = new Template();
+        template.setSendSettingCode(code);
+        sendSetting.setTemplates(templateMapper.select(template));
         return sendSetting;
     }
 
     @Override
     public void createByScan(Set<NotifyBusinessTypeScanData> businessTypes) {
-        businessTypes.stream().map(t -> modelMapper.map(t, SendSetting.class)).forEach(i -> {
-            SendSetting query = sendSettingMapper.selectOne(new SendSetting(i.getCode()));
+        businessTypes.forEach(t -> {
+            SendSettingDTO sendSettingDTO = new SendSettingDTO();
+            BeanUtils.copyProperties(t, sendSettingDTO);
+            SendSettingDTO query = sendSettingMapper.selectOne(new SendSettingDTO(sendSettingDTO.getCode()));
             if (query == null) {
-                sendSettingMapper.insertSelective(i);
+                sendSettingDTO.setEdit(sendSettingDTO.getAllowConfig());
+                sendSettingMapper.insertSelective(sendSettingDTO);
             } else {
-                query.setName(i.getName());
-                query.setDescription(i.getDescription());
-                query.setLevel(i.getLevel());
+                query.setEdit(sendSettingDTO.getAllowConfig());
+                query.setAllowConfig(sendSettingDTO.getAllowConfig());
+                query.setName(sendSettingDTO.getName());
+                query.setDescription(sendSettingDTO.getDescription());
+                query.setLevel(sendSettingDTO.getLevel());
+                query.setCategoryCode(sendSettingDTO.getCategoryCode());
+                query.setPmEnabledFlag(sendSettingDTO.getPmEnabledFlag());
+                query.setEmailEnabledFlag(sendSettingDTO.getEmailEnabledFlag());
+                query.setSmsEnabledFlag(sendSettingDTO.getSmsEnabledFlag());
+                query.setWebhookEnabledFlag(sendSettingDTO.getWebhookEnabledFlag());
                 sendSettingMapper.updateByPrimaryKeySelective(query);
+            }
+
+            if (t.getLevel().equals(Level.PROJECT.getValue()) && !t.getNotifyType().equals(ServiceNotifyType.DEFAULT_NOTIFY.getTypeName())) {
+                updateMsgSetting(t);
             }
         });
     }
 
     @Override
-    public List<SendSettingDetailDTO> queryByLevelAndAllowConfig(String level, boolean allowConfig) {
+    public List<SendSettingDetailTreeDTO> queryByLevelAndAllowConfig(String level, boolean allowConfig) {
         if (level != null) {
             CommonValidator.validatorLevel(level);
         }
         List<SendSettingDetailDTO> list = sendSettingMapper.queryByLevelAndAllowConfig(level, allowConfig);
-        return list.stream().filter(s -> s.getEmailTemplateId() != null || s.getPmTemplateId() != null || s.getSmsTemplateId() != null)
+        List<SendSettingDetailTreeDTO> sendSettingDetailTreeDTOS = new ArrayList<>();
+
+        Map<String, Set<String>> categoryMap = new HashMap<>();
+        categoryMap.put(ResourceType.valueOf(level.toUpperCase()).value(), new HashSet<>());
+        for (SendSettingDetailDTO sendSettingDTO : list) {
+            Set<String> categoryCodes = categoryMap.get(sendSettingDTO.getLevel());
+            if (categoryCodes != null) {
+                categoryCodes.add(sendSettingDTO.getCategoryCode());
+            }
+        }
+        getSecondSendSettingDetailTreeDTOS(categoryMap, sendSettingDetailTreeDTOS, list);
+
+
+        return sendSettingDetailTreeDTOS.stream().filter(s -> (s.getEmailTemplateId() != null || s.getPmTemplateId() != null || s.getSmsTemplateId() != null) || s.getParentId() == 0)
                 .collect(Collectors.toList());
+    }
+
+    private void getSecondSendSettingDetailTreeDTOS(Map<String, Set<String>> categoryMap, List<SendSettingDetailTreeDTO> sendSettingDetailTreeDTOS, List<SendSettingDetailDTO> sendSettingDetailDTOS) {
+        int i = 1;
+        for (String level : categoryMap.keySet()) {
+            for (String categoryCode : categoryMap.get(level)) {
+                SendSettingDetailTreeDTO sendSettingDetailTreeDTO = new SendSettingDetailTreeDTO();
+                sendSettingDetailTreeDTO.setParentId(0L);
+
+                SendSettingCategoryDTO categoryDTO = new SendSettingCategoryDTO();
+                categoryDTO.setCode(categoryCode);
+                categoryDTO = sendSettingCategoryMapper.selectOne(categoryDTO);
+                sendSettingDetailTreeDTO.setName(categoryDTO.getName());
+                sendSettingDetailTreeDTO.setSequenceId((long) i);
+                sendSettingDetailTreeDTO.setCode(categoryDTO.getCode());
+                //防止被过滤掉
+                sendSettingDetailTreeDTO.setEmailTemplateId(0L);
+                sendSettingDetailTreeDTOS.add(sendSettingDetailTreeDTO);
+                int secondParentId = i;
+                i = i + 1;
+
+                i = getThirdSendSettingDetailTreeDTOS(sendSettingDetailDTOS, level, categoryCode, secondParentId, sendSettingDetailTreeDTOS, i);
+
+            }
+        }
+    }
+
+    private int getThirdSendSettingDetailTreeDTOS(List<SendSettingDetailDTO> sendSettingDetailDTOS, String level, String categoryCode, Integer secondParentId, List<SendSettingDetailTreeDTO> sendSettingDetailTreeDTOS, Integer i) {
+        for (SendSettingDetailDTO sendSettingDetailDTO : sendSettingDetailDTOS) {
+            if (sendSettingDetailDTO.getLevel().equals(level) && sendSettingDetailDTO.getCategoryCode().equals(categoryCode)) {
+                SendSettingDetailTreeDTO sendSettingDetailTreeDTO = new SendSettingDetailTreeDTO();
+                BeanUtils.copyProperties(sendSettingDetailDTO, sendSettingDetailTreeDTO);
+                sendSettingDetailTreeDTO.setParentId((long) secondParentId);
+                sendSettingDetailTreeDTO.setSequenceId((long) i);
+                sendSettingDetailTreeDTOS.add(sendSettingDetailTreeDTO);
+                i = i + 1;
+            }
+        }
+        return i;
     }
 
 
@@ -141,15 +171,17 @@ public class SendSettingServiceImpl implements SendSettingService {
     }
 
     @Override
-    public PageInfo<MessageServiceVO> pagingAll(String messageType, String introduce, String level, Boolean enabled, Boolean allowConfig, String params, Pageable pageable) {
+    public PageInfo<MessageServiceVO> pagingAll(String messageType, String introduce, Boolean enabled, Boolean allowConfig, String params, Pageable pageable, String firstCode, String secondCode) {
         return PageHelper.startPage(pageable.getPageNumber(), pageable.getPageSize(), PageableHelper.getSortSql(pageable.getSort())).doSelectPageInfo(
-                () -> sendSettingMapper.doFTR(messageType, introduce, level, enabled, allowConfig, params));
+                () -> sendSettingMapper.doFTR(messageType, introduce, firstCode, secondCode, enabled, allowConfig, params));
     }
 
 
     @Override
-    public MessageServiceVO enabled(Long id) {
-        SendSetting enabledDTO = sendSettingMapper.selectByPrimaryKey(id);
+    public MessageServiceVO enabled(String code) {
+        SendSettingDTO enabledDTO = new SendSettingDTO();
+        enabledDTO.setCode(code);
+        enabledDTO = sendSettingMapper.selectOne(enabledDTO);
         if (enabledDTO == null) {
             throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
         }
@@ -163,8 +195,10 @@ public class SendSettingServiceImpl implements SendSettingService {
     }
 
     @Override
-    public MessageServiceVO disabled(Long id) {
-        SendSetting disabledDTO = sendSettingMapper.selectByPrimaryKey(id);
+    public MessageServiceVO disabled(String code) {
+        SendSettingDTO disabledDTO = new SendSettingDTO();
+        disabledDTO.setCode(code);
+        disabledDTO = sendSettingMapper.selectOne(disabledDTO);
         if (disabledDTO == null) {
             throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
         }
@@ -177,10 +211,156 @@ public class SendSettingServiceImpl implements SendSettingService {
         return getMessageServiceVO(disabledDTO);
     }
 
+    /**
+     * 根据 notify_send_setting{@link SendSettingDTO}
+     * 获取 MessageServiceVO {@link MessageServiceVO}
+     *
+     * @param sendSetting {@link SendSettingDTO}
+     * @return {@link MessageServiceVO}
+     */
+    private MessageServiceVO getMessageServiceVO(SendSettingDTO sendSetting) {
+        return new MessageServiceVO()
+                .setId(sendSetting.getId())
+                .setMessageType(sendSetting.getName())
+                .setIntroduce(sendSetting.getDescription())
+                .setLevel(sendSetting.getLevel())
+                .setAllowConfig(sendSetting.getAllowConfig())
+                .setEnabled(sendSetting.getEnabled())
+                .setObjectVersionNumber(sendSetting.getObjectVersionNumber());
+    }
+
+    @Override
+    public List<MsgServiceTreeVO> getMsgServiceTree() {
+        List<SendSettingDTO> sendSettingDTOS = sendSettingMapper.selectAll();
+        List<MsgServiceTreeVO> msgServiceTreeVOS = new ArrayList<>();
+        MsgServiceTreeVO msgServiceTreeVO1 = new MsgServiceTreeVO();
+        msgServiceTreeVO1.setParentId(0L);
+        msgServiceTreeVO1.setId(1L);
+        msgServiceTreeVO1.setName(LevelType.SITE.value());
+        msgServiceTreeVO1.setCode(ResourceType.SITE.value());
+        msgServiceTreeVOS.add(msgServiceTreeVO1);
+
+        MsgServiceTreeVO msgServiceTreeVO2 = new MsgServiceTreeVO();
+        msgServiceTreeVO2.setParentId(0L);
+        msgServiceTreeVO2.setId(2L);
+        msgServiceTreeVO2.setName(LevelType.ORGANIZATION.value());
+        msgServiceTreeVO2.setCode(ResourceType.ORGANIZATION.value());
+        msgServiceTreeVOS.add(msgServiceTreeVO2);
+
+        MsgServiceTreeVO msgServiceTreeVO3 = new MsgServiceTreeVO();
+        msgServiceTreeVO3.setParentId(0L);
+        msgServiceTreeVO3.setId(3L);
+        msgServiceTreeVO3.setName(LevelType.PROJECT.value());
+        msgServiceTreeVO3.setCode(ResourceType.PROJECT.value());
+        msgServiceTreeVOS.add(msgServiceTreeVO3);
+
+        Map<String, Set<String>> categoryMap = new HashMap<>();
+        categoryMap.put(ResourceType.SITE.value(), new HashSet<>());
+        categoryMap.put(ResourceType.ORGANIZATION.value(), new HashSet<>());
+        categoryMap.put(ResourceType.PROJECT.value(), new HashSet<>());
+        for (SendSettingDTO sendSettingDTO : sendSettingDTOS) {
+            Set<String> categoryCodes = categoryMap.get(sendSettingDTO.getLevel());
+            if (categoryCodes != null) {
+                categoryCodes.add(sendSettingDTO.getCategoryCode());
+            }
+        }
+        getSecondMsgServiceTreeVOS(categoryMap, msgServiceTreeVOS, sendSettingDTOS);
+
+
+        return msgServiceTreeVOS;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public SendSettingDTO updateSendSetting(Long id, SendSettingDTO updateDTO) {
+        SendSettingDTO oldSetting = sendSettingMapper.selectByPrimaryKey(id);
+        updateDTO.setId(id);
+        if (sendSettingMapper.updateByPrimaryKeySelective(updateDTO) != 1) {
+            throw new CommonException(SEND_SETTING_UPDATE_EXCEPTION);
+        }
+        compareAndUpdateProjectSetting(oldSetting,updateDTO);
+        return sendSettingMapper.selectByPrimaryKey(id);
+    }
+
+    /**
+     * 比较更新内容，（取消勾选发送方式时，把项目的设置也取消掉）
+     * @param oldSetting
+     * @param updateDTO
+     */
+    private void compareAndUpdateProjectSetting(SendSettingDTO oldSetting, SendSettingDTO updateDTO) {
+        if (Boolean.TRUE.equals(oldSetting.getPmEnabledFlag()) && Boolean.FALSE.equals(updateDTO.getPmEnabledFlag())) {
+            messageSettingService.disableNotifyTypeByCodeAndType(updateDTO.getCode(), NotifyType.PM.getValue());
+        }
+        if (Boolean.TRUE.equals(oldSetting.getEmailEnabledFlag()) && Boolean.FALSE.equals(updateDTO.getEmailEnabledFlag())) {
+            messageSettingService.disableNotifyTypeByCodeAndType(updateDTO.getCode(), NotifyType.EMAIL.getValue());
+        }
+        if (Boolean.TRUE.equals(oldSetting.getSmsEnabledFlag()) && Boolean.FALSE.equals(updateDTO.getSmsEnabledFlag())) {
+            messageSettingService.disableNotifyTypeByCodeAndType(updateDTO.getCode(), NotifyType.SMS.getValue());
+        }
+    }
+
+    private void getSecondMsgServiceTreeVOS(Map<String, Set<String>> categoryMap, List<MsgServiceTreeVO> msgServiceTreeVOS, List<SendSettingDTO> sendSettingDTOS) {
+        int i = 4;
+        for (String level : categoryMap.keySet()) {
+            for (String categoryCode : categoryMap.get(level)) {
+                MsgServiceTreeVO msgServiceTreeVO = new MsgServiceTreeVO();
+                if (level.equals(ResourceType.SITE.value())) {
+                    msgServiceTreeVO.setParentId(1L);
+                } else if (level.equals(ResourceType.ORGANIZATION.value())) {
+                    msgServiceTreeVO.setParentId(2L);
+                } else {
+                    msgServiceTreeVO.setParentId(3L);
+                }
+
+                SendSettingCategoryDTO categoryDTO = new SendSettingCategoryDTO();
+                categoryDTO.setCode(categoryCode);
+                categoryDTO = sendSettingCategoryMapper.selectOne(categoryDTO);
+                msgServiceTreeVO.setName(categoryDTO.getName());
+                msgServiceTreeVO.setId((long) i);
+                msgServiceTreeVO.setCode(categoryDTO.getCode());
+                msgServiceTreeVOS.add(msgServiceTreeVO);
+                int secondParentId = i;
+                i = i + 1;
+
+                i = getThirdMsgServiceTreeVOS(sendSettingDTOS, level, categoryCode, secondParentId, msgServiceTreeVOS, i);
+
+            }
+        }
+    }
+
+    private int getThirdMsgServiceTreeVOS(List<SendSettingDTO> sendSettingDTOS, String level, String categoryCode, Integer secondParentId, List<MsgServiceTreeVO> msgServiceTreeVOS, Integer i) {
+        for (SendSettingDTO sendSettingDTO : sendSettingDTOS) {
+            if (sendSettingDTO.getLevel().equals(level) && sendSettingDTO.getCategoryCode().equals(categoryCode)) {
+                MsgServiceTreeVO treeVO = new MsgServiceTreeVO();
+                treeVO.setParentId((long) secondParentId);
+                treeVO.setId((long) i);
+                treeVO.setName(sendSettingDTO.getName());
+                treeVO.setEnabled(sendSettingDTO.getEnabled());
+                treeVO.setCode(sendSettingDTO.getCode());
+                msgServiceTreeVOS.add(treeVO);
+                i = i + 1;
+            }
+        }
+        return i;
+    }
+
+    @Override
+    public WebHookVO.SendSetting getUnderProject() {
+        WebHookVO.SendSetting sendSetting = new WebHookVO.SendSetting();
+        //1.获取WebHook 发送设置可选集合(启用,且启用WebHook的发送设置)
+        List<SendSettingDTO> sendSettingSelection = sendSettingMapper.select(new SendSettingDTO().setEnabled(true).setLevel(ResourceType.PROJECT.value()).setWebhookEnabledFlag(true));
+        if (CollectionUtils.isEmpty(sendSettingSelection)) {
+            return sendSetting;
+        }
+        //2.获取发送设置类别集合
+        Set<SendSettingCategoryDTO> sendSettingCategorySelection = sendSettingCategoryMapper.selectByCodeSet(sendSettingSelection.stream().map(SendSettingDTO::getCategoryCode).collect(Collectors.toSet()));
+        //3.构造返回数据
+        return sendSetting.setSendSettingSelection(new HashSet<>(sendSettingSelection)).setSendSettingCategorySelection(new HashSet<>(sendSettingCategorySelection));
+    }
 
     @Override
     public MessageServiceVO allowConfiguration(Long id) {
-        SendSetting allowDTO = sendSettingMapper.selectByPrimaryKey(id);
+        SendSettingDTO allowDTO = sendSettingMapper.selectByPrimaryKey(id);
         if (allowDTO == null) {
             throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
         }
@@ -195,7 +375,7 @@ public class SendSettingServiceImpl implements SendSettingService {
 
     @Override
     public MessageServiceVO forbiddenConfiguration(Long id) {
-        SendSetting forbiddenDTO = sendSettingMapper.selectByPrimaryKey(id);
+        SendSettingDTO forbiddenDTO = sendSettingMapper.selectByPrimaryKey(id);
         if (forbiddenDTO == null) {
             throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
         }
@@ -208,124 +388,86 @@ public class SendSettingServiceImpl implements SendSettingService {
         return getMessageServiceVO(forbiddenDTO);
     }
 
-    /**
-     * 根据 notify_send_setting{@link SendSetting}
-     * 获取 MessageServiceVO {@link MessageServiceVO}
-     *
-     * @param sendSetting {@link SendSetting}
-     * @return {@link MessageServiceVO}
-     */
-    private MessageServiceVO getMessageServiceVO(SendSetting sendSetting) {
-        return new MessageServiceVO()
-                .setId(sendSetting.getId())
-                .setMessageType(sendSetting.getName())
-                .setIntroduce(sendSetting.getDescription())
-                .setLevel(sendSetting.getLevel())
-                .setAllowConfig(sendSetting.getAllowConfig())
-                .setEnabled(sendSetting.getEnabled())
-                .setObjectVersionNumber(sendSetting.getObjectVersionNumber());
-    }
-
-
     @Override
-    public EmailSendSettingVO getEmailSendSetting(Long id) {
-        SendSetting sendSetting = sendSettingMapper.selectByPrimaryKey(id);
-        if (sendSetting == null) {
-            throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
-        }
-        Template emailTemplate = null;
-        if (sendSetting.getEmailTemplateId() != null) {
-            emailTemplate = templateMapper.selectByPrimaryKey(sendSetting.getEmailTemplateId());
-        }
-        return getEmailSendSettingVO(sendSetting, emailTemplate);
-    }
-
-
-    @Override
-    public EmailSendSettingVO updateEmailSendSetting(EmailSendSettingVO updateVO) {
-        SendSetting updateDTO = sendSettingMapper.selectByPrimaryKey(updateVO.getId());
-        if (updateDTO == null) {
-            throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
-        }
-        updateDTO.setRetryCount(updateVO.getRetryCount());
-        updateDTO.setIsSendInstantly(updateVO.getSendInstantly());
-        updateDTO.setIsManualRetry(updateVO.getManualRetry());
-        updateDTO.setEmailTemplateId(updateVO.getEmailTemplateId());
-        updateDTO.setObjectVersionNumber(updateVO.getObjectVersionNumber());
-        if (sendSettingMapper.updateByPrimaryKeySelective(updateDTO) != 1) {
-            throw new CommonException(SEND_SETTING_UPDATE_EXCEPTION);
-        }
-        return getEmailSendSetting(updateDTO.getId());
+    public SendSettingDTO queryByCode(String code) {
+        SendSettingDTO sendSettingDTO = new SendSettingDTO();
+        sendSettingDTO.setCode(code);
+        return sendSettingMapper.selectOne(sendSettingDTO);
     }
 
     @Override
-    public PmSendSettingVO getPmSendSetting(Long id) {
-        SendSetting sendSetting = sendSettingMapper.selectByPrimaryKey(id);
-        if (sendSetting == null) {
-            throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
-        }
-        Template pmTemplate = null;
-        if (sendSetting.getPmTemplateId() != null) {
-            pmTemplate = templateMapper.selectByPrimaryKey(sendSetting.getPmTemplateId());
-        }
-        return getPmSendSettingVO(sendSetting, pmTemplate);
-    }
-
-    @Override
-    public PmSendSettingVO updatePmSendSetting(PmSendSettingVO updateVO) {
-        SendSetting updateDTO = sendSettingMapper.selectByPrimaryKey(updateVO.getId());
-        if (updateDTO == null) {
-            throw new CommonException(SEND_SETTING_DOES_NOT_EXIST);
-        }
-        updateDTO.setPmType(updateVO.getPmType());
-        updateDTO.setPmTemplateId(updateVO.getPmTemplateId());
-        updateDTO.setObjectVersionNumber(updateVO.getObjectVersionNumber());
-        if (sendSettingMapper.updateByPrimaryKeySelective(updateDTO) != 1) {
-            throw new CommonException(SEND_SETTING_UPDATE_EXCEPTION);
-        }
-        return getPmSendSetting(updateDTO.getId());
+    public Boolean checkResourceDeleteEnabled() {
+        SendSettingDTO record = new SendSettingDTO();
+        record.setCode(RESOURCE_DELETE_CONFIRMATION);
+        SendSettingDTO sendSettingDTO = sendSettingMapper.selectOne(record);
+        return sendSettingDTO.getEnabled();
     }
 
     /**
-     * 根据 notify_send_setting{@link SendSetting} 和 notify_template{@link Template}
-     * 获取 EmailSendSettingVO {@link EmailSendSettingVO}
+     * 更新MessageSetting
      *
-     * @param sendSetting
-     * @param template
-     * @return
+     * @param typeScanData
      */
-    private EmailSendSettingVO getEmailSendSettingVO(SendSetting sendSetting, Template template) {
-        EmailSendSettingVO emailSendSettingVO = new EmailSendSettingVO();
-        BeanUtils.copyProperties(sendSetting, emailSendSettingVO);
-        emailSendSettingVO.setSendInstantly(sendSetting.getIsSendInstantly());
-        emailSendSettingVO.setManualRetry(sendSetting.getIsManualRetry());
-        if (template != null) {
-            emailSendSettingVO
-                    .setEmailTemplateId(template.getId())
-                    .setEmailTemplateName(template.getName())
-                    .setEmailTemplateTitle(template.getEmailTitle());
+    private void updateMsgSetting(NotifyBusinessTypeScanData typeScanData) {
+        MessageSettingDTO queryDTO = messageSettingMapper.queryByCodeWithoutProjectId(typeScanData.getCode());
+        if (queryDTO == null) {
+            MessageSettingDTO messageSettingDTO = new MessageSettingDTO();
+            BeanUtils.copyProperties(typeScanData, messageSettingDTO);
+            messageSettingDTO.setEmailEnable(typeScanData.getProEmailEnabledFlag());
+            messageSettingDTO.setPmEnable(typeScanData.getProPmEnabledFlag());
+            messageSettingMapper.insertSelective(messageSettingDTO);
+            if (typeScanData.getTargetUserType().length > 0) {
+                for (String targetUserType : typeScanData.getTargetUserType()) {
+                    TargetUserDTO targetUserDTO = new TargetUserDTO();
+                    targetUserDTO.setMessageSettingId(messageSettingDTO.getId());
+                    targetUserDTO.setType(targetUserType);
+                    messageSettingTargetUserMapper.insertSelective(targetUserDTO);
+                }
+            }
+        } else {
+            queryDTO.setPmEnable(typeScanData.getProPmEnabledFlag());
+            queryDTO.setEmailEnable(typeScanData.getProEmailEnabledFlag());
+            queryDTO.setNotifyType(typeScanData.getNotifyType());
+            if (messageSettingMapper.updateByPrimaryKeySelective(queryDTO) != 1) {
+                throw new CommonException("error.insert.message.setting");
+            }
+            updateTargetUser(typeScanData, queryDTO.getId());
         }
-        return emailSendSettingVO;
     }
 
-
     /**
-     * 根据 notify_send_setting{@link SendSetting} 和 notify_template{@link Template}
-     * 获取 PmSendSettingVO {@link PmSendSettingVO}
+     * 更新targetUser
      *
-     * @param sendSetting
-     * @param template
-     * @return
+     * @param typeScanData
+     * @param mgsSettingId
      */
-    private PmSendSettingVO getPmSendSettingVO(SendSetting sendSetting, Template template) {
-        PmSendSettingVO pmSendSettingVO = new PmSendSettingVO();
-        BeanUtils.copyProperties(sendSetting, pmSendSettingVO);
-        if (template != null) {
-            pmSendSettingVO
-                    .setPmTemplateId(template.getId())
-                    .setPmTemplateName(template.getName())
-                    .setPmTemplateTitle(template.getPmTitle());
+    private void updateTargetUser(NotifyBusinessTypeScanData typeScanData, Long mgsSettingId) {
+        List<String> oldTypeList = messageSettingTargetUserMapper.listByMsgSettingId(mgsSettingId).stream().map(TargetUserDTO::getType).collect(Collectors.toList());
+        List<String> newTypeList = Arrays.asList(typeScanData.getTargetUserType());
+        List<String> typeList = new ArrayList<>(newTypeList);
+        if (oldTypeList != null) {
+            newTypeList.forEach(type -> {
+                if (oldTypeList.contains(type)) {
+                    oldTypeList.remove(type);
+                    typeList.remove(type);
+                }
+            });
         }
-        return pmSendSettingVO;
+
+        if (oldTypeList != null) {
+            oldTypeList.forEach(oldType -> {
+                TargetUserDTO targetUserDTO = new TargetUserDTO();
+                targetUserDTO.setMessageSettingId(mgsSettingId);
+                targetUserDTO.setType(oldType);
+                messageSettingTargetUserMapper.delete(targetUserDTO);
+            });
+        }
+
+        typeList.forEach(newType -> {
+            TargetUserDTO targetUserDTO = new TargetUserDTO();
+            targetUserDTO.setMessageSettingId(mgsSettingId);
+            targetUserDTO.setType(newType);
+            messageSettingTargetUserMapper.insertSelective(targetUserDTO);
+        });
     }
 }

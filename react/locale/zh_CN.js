@@ -171,12 +171,12 @@ const pageDetail = {
   'global.sendsetting.delete.title': '删除触发类型',
   'global.sendsetting.delete.content.has-template': '该触发类型下已有邮件模板或者站内信模板，确定要删除"{name}"触发类型？删除触发类型不会删除该类型下的模板。',
   'global.sendsetting.delete.content': '确定要删除触发类型为"{name}"的记录吗？',
-
+  
   // 消息记录
   'global.msgrecord.title': '平台"{name}"的邮件发送记录',
   'global.msgrecord.description': '通过此平台，您可以查看邮件发送状态回执，并且了解发送失败的原因，手动重发发送失败的消息。',
   'global.msgrecord.link': `${docServer}/user-guide/system-configuration/message/record/`,
-
+  
   // 邮件模板
   'global.mailtemplate.title': '平台"{name}"的邮件模板',
   'global.mailtemplate.description': '由特定的事件触发后，系统自动发送邮件给用户，邮件模板统一了用户接受的邮件内容。',
@@ -211,6 +211,7 @@ const pageDetail = {
   'global.inmailtemplate.modify.description': '修改站内信模板可以让您根据自己的需求，修改发送的主题、内容。',
   'global.inmailtemplate.modify.link': `${docServer}/user-guide/system-configuration/message/email-template/`,
 
+  'notify-lists.disable.message': '停用该消息服务后，事件触发将无法收到对应的通知，确定要停用吗？',
 
   'global.notifySetting.connect.success': '连接成功',
   // 邮箱配置
@@ -665,6 +666,35 @@ const pageDetail = {
   'time.thirty.days': '近30天',
 };
 
+const projectNotify = {
+  'project.notify.tabs.agile': '敏捷消息',
+  'project.notify.tabs.devops': 'DevOps消息',
+  'project.notify.tabs.resource': '资源删除验证',
+  'project.notify.tabs.webhook': 'Webhook配置',
+  'project.notify.type': '信息类型',
+  'project.notify.pmEnable': '站内信',
+  'project.notify.emailEnable': '邮件',
+  'project.notify.smsEnable': '短信',
+  'project.notify.noticeObject': '通知对象',
+  'project.notify.noticeObject.resource.tips': '此处的通知对象为验证码的接收者',
+  'project.notify.noticeObject.devops.tips': 'DevOps消息的通知对象不支持修改',
+  'project.notify.object.handler': '操作者',
+  'project.notify.object.specifier': '指定用户',
+  'project.notify.object.reporter': '报告人',
+  'project.notify.object.assignee': '经办人',
+  'project.notify.object.projectOwner': '项目所有者',
+  'project.notify.choose': '请选择',
+  'project.notify.empty.title': '验证通知已停用',
+  'project.notify.empty.des': '该类型的消息通知已在平台管理中被停用，若想启用，请联系平台管理员操作',
+};
+
+const receiveSetting = {
+  'receive.type': '信息类型',
+  'receive.type.pm': '站内信',
+  'receive.type.email': '邮件',
+  'receive.type.sms': '短信',
+};
+
 /* eslint-disable-next-line */
 const zh_CN = {
 
@@ -687,6 +717,7 @@ const zh_CN = {
   loading: '加载中',
   queue: '队列中',
   wait_to_be_pulled: '等待被拉取',
+  noContent: '暂无内容',
 
   day: '天',
   hour: '小时',
@@ -1827,8 +1858,16 @@ const zh_CN = {
   'download.failed.detail': '点击下载失败详情',
   'download.failed.error': '失败详情文件丢失，无法下载',
 
+  'md.placeholder': '在下面编辑您的webhook模板，支持MarkDown格式',
+  write: '编辑',
+  preview: '预览',
+  expand: '展开',
+  shrink: '收起',
+
   // page
   ...pageDetail,
+  ...projectNotify,
+  ...receiveSetting,
 
 };
 /* eslint-disable-next-line */

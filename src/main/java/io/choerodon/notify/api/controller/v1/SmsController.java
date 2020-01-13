@@ -3,7 +3,7 @@ package io.choerodon.notify.api.controller.v1;
 import io.choerodon.core.annotation.Permission;
 import io.choerodon.core.enums.ResourceType;
 import io.choerodon.notify.api.service.SmsService;
-import io.choerodon.notify.domain.SmsConfigDTO;
+import io.choerodon.notify.infra.dto.SmsConfigDTO;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -25,7 +25,7 @@ public class SmsController {
     }
 
     @GetMapping("/config")
-    @ApiOperation(value = "根据id查询短信配置")
+    @ApiOperation(value = "查询短信配置（根据id查询）")
     @Permission(type = ResourceType.SITE)
     public ResponseEntity<SmsConfigDTO> queryConfig(@RequestParam(name = "organization_id") Long organizationId) {
         return new ResponseEntity<>(smsService.queryConfig(organizationId), HttpStatus.OK);

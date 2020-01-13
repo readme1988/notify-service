@@ -1,102 +1,91 @@
-.message-service {
-  margin: 0;
-
-  .column1 {
-    padding-left: 0;
-  }
-
-  table {
-    tbody {
-      font-family: PingFangSC-Regular;
-      font-size: 13px;
-      td {
-        color: fade(#000000, 65%);
-      }
+.c7n-notify-contentList {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 !important;
+  overflow: hidden;
+  border-top: 1px solid #d3d3d3;
+  .treeOverload();
+  .c7n-tree li ul {
+    margin: 0;
+    padding: 0 0 0 0.12rem;
+    .c7n-tree-switcher-noop {
+      width: 0.12rem;
     }
   }
 
-  .title {
-    font-family: "PingFangSC-Regular";
-    font-size: 20px;
-    color: rgba(0, 0, 0, 0.87);
-    line-height: 24px;
-    line-height: 64px;
-  }
-  
-  .c7n-tableMessage-name {
-    float: left;
-  }
-  
-  .column1 {
-    padding-left: 0;
-  
-    .c7n-pro-output {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+  &-rightContent {
+    width: 100%;
+    overflow: auto;
+    overflow-x: hidden;
+    > * {
+      margin-right: 0.2rem;
     }
   }
-  
-  
-  .start {
-    border: 0;
-    background: #00BFA5;
-    border-radius: 2px;
-    font-family: "PingFangSC-Medium";
-    font-size: 10px;
-    color: #FFFFFF;
-    text-align: center;
-    width: 0.4rem;
-    height: 0.16rem;
+
+  &-tree {
+    min-width: 2.24rem;
+    height: 100%;
+    padding: 0.1rem;
+    margin-right: 0.2rem;
+    border-right: 1px solid #d8d8d8;
+    overflow: auto;
+    overflow-x: hidden;
+    input {
+      border: none;
+    }
+    &-query {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.06);
+      color: rgba(0, 0, 0, 0.54);
+    }
   }
-  
-  .forbidden {
-    border: 0;
-    background: red;
-    border-radius: 2px;
-    font-family: "PingFangSC-Medium";
-    font-size: 10px;
-    color: #FFFFFF;
-    text-align: center;
-    width: 0.4rem;
-    height: 0.16rem;
+
+  &-circle {
+    .circleIcon();
   }
-  
-  .c7n-pro-btn {
-    padding-top: 0;
+
+  &-icon {
+    .icon(0.08rem);
   }
-  
-  .font {
-    font-family: "PingFangSC-Regular";
-    font-size: 13px;
-    color: rgba(0, 0, 0, 0.65);
-    text-align: center;
+
+  &-text {
+    display: flex;
+
+    &-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 80%;
+    }
   }
-  
-  .c7n-notify-status {
-    color: white;
-    width: 0.4rem;
-    height: 0.18rem;
-    -webkit-border-radius: 2px;
-    -moz-border-radius: 2px;
-    border-radius: 2px;
-    font-size: 0.10rem;
-    line-height: 0.18rem;
-    text-align: center;
-    position: absolute;
-    // left: 50%;
-    /* 定位父级的50% */
-    top: 50%;
-    // transform: translate(-50%, -50%);
-    transform: translateY(-50%);
-    /*自己的50% */
+}
+
+.circleIcon(@width: 0.1rem, @height: 0.1rem) {
+  display: inline-block;
+  width: @width;
+  height: @height;
+  border-radius: 50%;
+}
+
+.icon(@marginRight) {
+  display: inline-block;
+  margin-right: @marginRight;
+}
+
+.treeOverload() {
+  .c7n-spin-container {
+    height: 100%;
   }
-  
-  .c7n-notify-enable {
-    background: #00BFA5;
+  .c7n-tree-node-content-wrapper {
+    width: 100%;
+    height: .32rem !important;
+    line-height: .32rem !important;
   }
-  
-  .c7n-notify-disable {
-    background: red;
+  .c7n-tree-switcher {
+    height: .32rem !important;
+
+    .icon {
+      line-height: .32rem !important;
+    }
   }
 }
